@@ -1,0 +1,22 @@
+licenses: ["Apache"]
+organization: "Andrew Stucki"
+ignore:
+  - extension: .go
+    match: internal/overlay/bpf_.*
+  - extension: .go
+    match: internal/rewrite/bpf_.*
+  - extension: .swift
+    match: ui/macos/Flutter/Generated*
+matches:
+  - extension: .go
+    type: go
+    directory: internal
+    license: Apache
+  - extension: .go
+    type: go
+    directory: cmd
+    license: Apache
+  - extension: .yaml
+    type: yaml
+    directory: deploy
+    license: Apache

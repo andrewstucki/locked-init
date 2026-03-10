@@ -1,0 +1,58 @@
+# Copyright 2026 Andrew Stucki
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# -- Number of webhook server replicas.
+replicaCount: 2
+
+webhook:
+  image:
+    # -- Webhook server image repository.
+    repository: ghcr.io/andrewstucki/locked-init/webhook
+    # -- Webhook server image tag.
+    # -- Overrides the image tag. Defaults to the chart's `appVersion`.
+    tag: ""
+    # -- Webhook server image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Port the webhook HTTPS server listens on.
+  port: 9443
+  # -- Webhook failure policy. `Fail` rejects pods if the webhook is unreachable; `Ignore` allows them through.
+  failurePolicy: Fail
+  # -- Webhook server log level (`debug`, `info`, `warn`, `error`).
+  logLevel: info
+  # -- Resource requests and limits for the webhook server container.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+wrapper:
+  image:
+    # -- CLI wrapper image repository. This is the image injected into pods as an initContainer.
+    repository: ghcr.io/andrewstucki/locked-init/wrapper
+    # -- CLI wrapper image tag.
+    # -- Overrides the image tag. Defaults to the chart's `appVersion`.
+    tag: ""
+
+leaseReaper:
+  # -- Delete completed Lease objects older than this duration. Set to `0` to disable cleanup.
+  ttl: 2h
+  # -- How often the reaper checks for expired Leases.
+  interval: 1h
+
+# -- Namespaces excluded from webhook mutation. The release namespace is always excluded.
+excludedNamespaces:
+  - kube-system

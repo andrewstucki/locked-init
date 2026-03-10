@@ -1,0 +1,122 @@
+version: "3"
+
+dotenv: ['.env']
+
+vars:
+  VERSION: 0.0.1-alpha
+  GHCR_PREFIX: ghcr.io/andrewstucki/locked-init
+  WRAPPER_REPO: '{{.GHCR_PREFIX}}/wrapper'
+  WEBHOOK_REPO: '{{.GHCR_PREFIX}}/webhook'
+  CHART_REPO: '{{.GHCR_PREFIX}}/charts'
+  PLATFORMS: linux/amd64,linux/arm64
+  GH_USER:
+    sh: gh api user --jq .login
+
+tasks:
+  ghcr-login:
+    desc: Login to GHCR via Docker and Helm using gh CLI
+    internal: true
+    cmds:
+      - echo $GHCR_TOKEN | docker login ghcr.io -u {{.GH_USER}} --password-stdin || true
+      - echo $GHCR_TOKEN | helm registry login ghcr.io -u {{.GH_USER}} --password-stdin || true
+
+  build:
+    desc: Build Go binaries locally
+    cmds:
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o locked-init ./cmd/locked-init
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o webhook ./cmd/webhook
+
+  lint:
+    desc: Run linters
+    cmds:
+      - golangci-lint run ./...
+      - go vet ./...
+      - govulncheck ./...
+      - helm lint deploy
+
+  setup-envtest:
+    desc: Install envtest binaries
+    internal: true
+    cmds:
+      - go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+      - setup-envtest use --print path
+    status:
+      - setup-envtest list 2>/dev/null | grep -q .
+
+  test:
+    desc: Run tests
+    deps: [setup-envtest]
+    env:
+      KUBEBUILDER_ASSETS:
+        sh: setup-envtest use --print path
+    cmds:
+      - go test -cover ./... -v
+
+  docker-wrapper:
+    desc: Build the CLI wrapper Docker image
+    cmds:
+      - docker build --target locked-init -t {{.WRAPPER_REPO}}:{{.VERSION}} -t {{.WRAPPER_REPO}}:latest .
+
+  docker-webhook:
+    desc: Build the webhook server Docker image
+    cmds:
+      - docker build --target webhook -t {{.WEBHOOK_REPO}}:{{.VERSION}} -t {{.WEBHOOK_REPO}}:latest .
+
+  docker:
+    desc: Build all Docker images
+    deps: [docker-wrapper, docker-webhook]
+
+  docker-push-wrapper:
+    desc: Build and push multi-arch CLI wrapper image
+    deps: [ghcr-login]
+    cmds:
+      - docker buildx build --platform {{.PLATFORMS}} --target locked-init -t {{.WRAPPER_REPO}}:{{.VERSION}} -t {{.WRAPPER_REPO}}:latest --push .
+
+  docker-push-webhook:
+    desc: Build and push multi-arch webhook image
+    deps: [ghcr-login]
+    cmds:
+      - docker buildx build --platform {{.PLATFORMS}} --target webhook -t {{.WEBHOOK_REPO}}:{{.VERSION}} -t {{.WEBHOOK_REPO}}:latest --push .
+
+  docker-push:
+    desc: Build and push all multi-arch Docker images
+    deps: [docker-push-wrapper, docker-push-webhook]
+
+  generate:
+    desc: Regenerate all derived files from VERSION
+    cmds:
+      - task: sync-chart-version
+      - cmd: licenseupdater
+
+  sync-chart-version:
+    desc: Stamp VERSION into Chart.yaml
+    internal: true
+    vars:
+      ESCAPED_VERSION: '"{{.VERSION}}"'
+    cmds:
+      - 'sed -i '''' ''s/^version:.*/version: {{.VERSION}}/'' deploy/Chart.yaml'
+      - 'sed -i '''' ''s/^appVersion:.*/appVersion: {{.ESCAPED_VERSION}}/'' deploy/Chart.yaml'
+
+  helm-package:
+    desc: Package the Helm chart
+    deps: [sync-chart-version]
+    cmds:
+      - helm package deploy
+
+  helm-push:
+    desc: Package and push the Helm chart to GHCR via OCI
+    deps: [helm-package, ghcr-login]
+    cmds:
+      - helm push locked-init-{{.VERSION}}.tgz oci://{{.CHART_REPO}}
+
+  helm-template:
+    desc: Render the Helm chart to stdout
+    deps: [sync-chart-version]
+    cmds:
+      - helm template locked-init deploy --namespace locked-init-system
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f locked-init webhook
+      - rm -f locked-init-*.tgz

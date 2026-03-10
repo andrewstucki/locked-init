@@ -1,0 +1,72 @@
+# Copyright 2026 Andrew Stucki
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "locked-init.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "locked-init.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "locked-init.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "locked-init.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "locked-init.serviceAccountName" . }}
+      containers:
+        - name: webhook
+          image: {{ include "locked-init.webhookImage" . }}
+          args:
+            - --port={{ .Values.webhook.port }}
+            - --image={{ include "locked-init.wrapperImage" . }}
+            - --log-level={{ .Values.webhook.logLevel }}
+            - --lease-ttl={{ .Values.leaseReaper.ttl }}
+            - --sweep-interval={{ .Values.leaseReaper.interval }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WEBHOOK_NAME
+              value: {{ include "locked-init.webhookName" . }}
+            - name: WEBHOOK_SECRET_NAME
+              value: {{ include "locked-init.tlsSecretName" . }}
+            - name: WEBHOOK_SERVICE_NAME
+              value: {{ include "locked-init.fullname" . }}
+          {{- with .Values.webhook.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20

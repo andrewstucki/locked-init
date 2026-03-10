@@ -1,0 +1,21 @@
+# Binaries
+/locked-init
+/webhook
+*.exe
+
+# Helm
+*.tgz
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Additional Files
+licenses
+.env
